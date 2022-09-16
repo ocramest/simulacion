@@ -1,0 +1,906 @@
+---
+title: ''
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Simulación:
+
+Una simulación es un intento por modelar alguna situación real o hipotética con alguna herramienta informática (no necesariamente), para de esta manera analizar o explicar algunos escenarios o posibles resultados del fenómeno. La idea es crear un modelo con distintas variables aleatorias e ir modificando ciertos parámetros para de esta manera conocer lo que se podría presentar en el proceso.
+
+### Antecedentes:
+
+-   Siglo XVIII-XIX: Buffon-Laplace (aproximación al valor de $\pi$).
+
+-   Principios del siglo XX: Gosset (Student) en la cervecería Guinness (datos incompletos).
+
+-   1940s: Von Neumann y Stanislaw Ulam (bomba de hidrógeno, difusión de neutrones).
+
+-   1980s: Muchas aplicaciones en temas financieros y de seguros (derivados o análisis de siniestralidad o productos éxoticos o difíciles de valuar).
+
+### Aplicaciones:
+
+-   Física: (estimar la trayectoria de algún astro o la posible existencia de algún objeto en el espacio)
+
+-   Biología: (epidemias, desplazamientos de especies, análisis de hábitat, etc.)
+
+-   Ingeniería industrial.
+
+-   Gestión de riesgos (financieros u otros).
+
+### Procedimiento:
+
+1.  Modelar alguna(s) variable(s) aleatoria(s): por ejemplo, $S = f(X, Y, Z)$.
+
+2.  Generar valores aleatorios (simular) para las variables de las que depende $S$.
+
+3.  Aproximar la distribución teórica de $S$ con la empírica obtenida con el procedimiento de simulación.
+
+4.  Calcular estadísticos de interés (probabilidades, momentos, cuantiles, etc.)
+
+**Idea central en simulación:** Si tenemos que analizar una variable $V$ difícil de modelar o de obtener, pero podemos usar otra variable $U$ que replique su función de distribución y que sea más fácil de obtener o modelar, entonces esto nos ayudaría a conocer los resultados de la variable de interés.
+
+### Método de la transformada inversa
+
+Si $X$ es una variable aleatoria, entonces puedo obtener la probabilidad de que tome un valor menor o igual que cualquier $x_0$, siempre que conozca su función de distribución $F_X(x)$.
+
+```{r}
+library(dplyr)
+# Ejemplo: Distribución exponencial con lambda = 0.2
+library(ggplot2)
+
+ggplot()+
+  geom_function(fun = function(x){pexp(x, 0.2)})+
+  xlim(0, 20)+
+  geom_vline(xintercept = 5, linetype = "dotted")+
+  geom_hline(yintercept = pexp(5, .2), linetype = "dotted")+
+  geom_label(aes(5, pexp(5, .2)), label = round(pexp(5, .2),4))
+```
+
+Si yo puedo conocer la probabilidad de que la variable $X$ tome un valor menor o igual que un cuantil $u$, entonces puedo conocer el cuantil $u$ con la probabilidad $F_X(u)$.
+
+Así, si podemos simular un valor $F_X(u)$ entre 0 y 1, uniformemente, entonces podría calcular el cuantil $u$ que también sería simulado, pues viene del otro valor.
+
+```{r}
+p = runif(1)
+
+ggplot()+
+  geom_function(fun = function(x){pexp(x, 0.2)})+
+  xlim(0, 20)+
+  geom_vline(xintercept = qexp(p, .2), linetype = "dotted")+
+  geom_hline(yintercept = p, linetype = "dotted")+
+  geom_label(aes(qexp(p, .2), p), label = paste0(round(qexp(p, .2),4), ", ", round(p,4)))
+
+```
+
+Así, vemos que podemos simular valores de una distribución uniforme para obtener los de una distribución exponencial. Si repitiera esto una gran cantidad de veces, podría replicar una distribución exponencial casi en su totalidad.
+
+```{r}
+# Simulaciones uniformes:
+simulados = runif(1e5)
+# Simulaciones exponenciales:
+expsim = qexp(simulados, rate = 0.2)
+
+# Graficando con puntos:
+
+ggplot()+
+  geom_point(aes(expsim, simulados),color = "blue", alpha = 0.3)+
+  geom_function(fun = function(x){pexp(x, .2)}, size = 1)
+
+
+```
+
+Formalmente, si yo sé que la función de distribución de una variable exponencial es $F_X(x) = 1-e^{-\lambda x}$, entonces de la misma, puedo obtener una fórmula para calcular algún cuantil $u$:
+
+$$
+F_X(x) = p
+$$
+
+Si puedo despejar mi x, entonces este será el cuantil $u$ de la distribución:
+
+$$
+1-e^{-\lambda x} = p
+$$
+
+El cuantil será $x = \frac{ln(1-p)}{-\lambda}$
+
+Así, si puedo simular la p, puedo simular la x y obtener alguna u.
+
+```{r}
+p = .4
+qexp(p, 2)
+u = log(1-p)/(-2)
+
+```
+
+**Pseudoaleatoriedad:**
+
+Si no sabemos de dónde viene un número, aunque parezca aleatorio, no lo es, siempre que alguien más sepa cómo surgió. Los algoritmos para generar números aleatorios son utilizados en muchos softwares, lo que nos permite realizar simulaciones, aun cuando estos valores no sean realmente aleatorios.
+
+Si usamos una semilla, podemos replicar los resultados simulados "aleatoriamente":
+
+```{r}
+set.seed(2020)
+rnorm(2)
+rnorm(3)
+set.seed(2020)
+rnorm(2)
+rnorm(3)
+
+
+```
+
+**Ejemplo Pareto:**
+
+En R contamos con muchas funciones que nos ahorran realizar el método de la transformada inversa, pero para el caso de la distribución de Pareto, esta función no viene incluida, pero nosotros podemos generarla:
+
+Si $X \sim Pareto(\theta, \alpha)$, entonces $F_X(x) = 1-(\frac{\theta}{x})^\alpha$
+
+De aquí, podemos obtener el cuantil de la distribución para así poder simularla al generar un valor aleatorio para la CDF:
+
+$1-(\frac{\theta}{x})^\alpha = p$
+
+$1-p = (\frac{\theta}{x})^\alpha$
+
+$(1-p)^{\frac{1}{\alpha}} = (\frac{\theta}{x})$
+
+$x = \frac{\theta}{(1-p)^{\frac{1}{\alpha}}}$
+
+Así, si puedo simular la $p$ con una uniforme, puedo simular la $x$ de una distribución de Pareto.
+
+```{r}
+rpareto = function(n = 1, theta, alpha){
+  p = runif(n)
+  theta/(1-p)^(1/alpha)
+}
+
+# Simulando un valor de una pareto con theta = 5 y alpha = 2:
+rpareto(n = 1, theta = 5, alpha = 2)
+
+# Simulando muchos:
+
+paretos = rpareto(n = 1e3, theta = 5, alpha = 2)
+hist(paretos)
+```
+
+Vemos que sigue un comportamiento como el esperado por una distribución de Pareto. De esta forma, vemos que el método de la inversa transformada es utilizado por distintos softwares para generar valores aleatorios que no vengan de una distribución uniforme.
+
+**Otros ejemplos:**
+
+```{r}
+# Simulaciones normal:
+
+qnorm(p = runif(1e5)) %>% hist()
+
+# Simulaciones Gamma:
+
+qgamma(runif(1e5), shape = 1, scale = 2) %>% hist()
+
+# Simulaciones negativa binomial:
+
+qnbinom(runif(1e5), size = 3, prob = .1) %>% hist()
+
+
+```
+
+## Simulación Monte Carlo:
+
+Este método consiste en replicar las características de algún proceso aleatorio después de ser modelado, para explorar las posibilidades o distintos escenarios e implicaciones del mismo, para explicar algo o realizar proyecciones.
+
+Es especialmente útil cuando el proceso que se busca analizar es muy complejo e incluso imposible de resolver analíticamente.
+
+**Inicios:**
+
+Se cree que fue cuando Stanislaw Ulam intentó conocer la probabilidad de ganar en el juego de Solitario.
+
+Se planteó que al jugar muchísimas veces, podría obtener el porcentaje de ocasiones en que ganó y así estimar esta probabilidad. Se dice que recurrió a Von Neumann, que tenía acceso a algo de poder computacional para realizar estas simulaciones.
+
+¿De dónde viene su nombre?
+
+Del barrio de Montecarlo en Mónaco, donde hay un casino muy famoso.
+
+#### Ejemplo 1: Precio de acción
+
+Mediante técnicas de series de tiempo y modelación paramétrica, se encontró que el cambio en el precio de la acción XYZ sigue el siguiente comportamiento:
+
+$\Delta P_t = 0.04+0.09\Delta P_{t-1}+\epsilon_t$
+
+Donde $\epsilon \sim logis(\mu = 0, s = 0.3)$
+
+Si el precio de hoy cerró en \$45 y ayer en \$44.93, ¿cuál es la probabilidad de que, en 30 días, rebase los \$50? ¿Cuál es el VaR al 95% para los peores escenarios? ¿Cuál es la probabilidad de que pierda si compré la acción en 45.07 y la vendo después de este periodo?
+
+Resolviendo:
+
+$P_t - P_{t-1} = 0.04 + 0.09(P_{t-1}-P_{t-2})+\epsilon_t$
+
+De esta ecuación, podemos despejar $P_t$ para así realizar pronósticos:
+
+$P_t = 0.04 + P_{t-1} + 0.09(P_{t-1}-P_{t-2})+\epsilon_t$
+
+Así, por ejemplo, si quisiera calcular un precio probable para el día de mañana:
+
+$P_{t+1} = 0.04 + P_{t} + 0.09(P_t-P_{t-1})+\epsilon_t$
+
+```{r}
+# Simulando un precio pronosticado:
+.04+45+.09*(45-44.93) + rlogis(1, location = 0, scale = 0.3)
+
+precios = rep(NA, 32)
+
+precios[1] = 44.93
+precios[2] = 45
+
+for(t in 3:32){
+  if(precios[t-1]<=0){
+    precios[32] = 0
+    break
+  }
+  precios[t] = .04+precios[t-1]+.09*(precios[t-1]-precios[t-2]) + rlogis(1, location = 0, scale = 0.3)
+}
+
+ts.plot(precios)
+```
+
+Esto sería una trayectoria simulada para el precio de la acción XYZ en 30 días, basada en el modelo anterior.
+
+Ahora, podemos realizar muchas simulaciones para responder a las preguntas con base en mucha más información de escenarios probables:
+
+```{r}
+simulaciones = 100
+
+precios = matrix(nrow = 32, ncol = simulaciones)
+precios[1,] = 44.93
+precios[2,] = 45
+
+for(simulacion in 1:simulaciones){
+  for(t in 3:32){
+    precios[t, simulacion] = .04+precios[t-1, simulacion]+.09*(precios[t-1, simulacion]-precios[t-2, simulacion]) + rlogis(1, location = 0, scale = 0.3)
+  }
+}
+
+ts.plot(precios)
+
+```
+
+Podemos ver el comportamiento del precio en el último día simulado, el día 30:
+
+```{r}
+summary(precios[32,])
+hist(precios[32,])
+
+```
+
+Para responder a las preguntas, es buena idea realizar una gran cantidad de simulaciones (+1e6):
+
+```{r}
+simulaciones = 1e6
+
+precios = matrix(nrow = 32, ncol = simulaciones)
+precios[1,] = 44.93
+precios[2,] = 45
+
+for(simulacion in 1:simulaciones){
+  for(t in 3:32){
+    precios[t, simulacion] = .04+precios[t-1, simulacion]+.09*(precios[t-1, simulacion]-precios[t-2, simulacion]) + rlogis(1, location = 0, scale = 0.3)
+  }
+}
+
+
+```
+
+¿cuál es la probabilidad de que, en 30 días, rebase los \$50?
+
+```{r}
+mean(precios[32,]>50)
+
+```
+
+¿Cuál es la probabilidad de que sea mayor que 45?
+
+```{r}
+mean(precios[32,]>45)
+```
+
+¿Cuál es el VaR al 95% para los peores escenarios?
+
+```{r}
+quantile(precios[32,], .05)
+#Sólo existe 5% de probabilidad de perder más de 4.05 pesos en 30 días.
+45-40.95032
+library(ggplot2)
+ggplot()+
+  geom_histogram(aes(precios[32,]), fill = "white", color = "black")+
+  geom_vline(xintercept = quantile(precios[32,], .05), color = "red")
+```
+
+¿Cuál es la probabilidad de que pierda si compré la acción en \$45.07 y la vendo después de este periodo?
+
+```{r}
+mean(precios[32,]<45.07)
+
+```
+
+#### Ejemplo 2: Pérdidas agregadas
+
+Cierta aseguradora modeló las pérdidas anuales por póliza para un seguro de autos, y encontró que la mejor distribución paramétrica para la frecuencia mensual de las pérdidas por siniestros reportados es $Poisson(\lambda = 0.035)$ y para la severidad (\$), en caso de ocurrir un siniestro reportado, es $Gamma(k = 1.13, \theta = 32257)$.
+
+Usando estos resultados, resuelve lo siguiente:
+
+1.  ¿Cuál es la probabilidad de que las pérdidas anuales agregadas por póliza rebasen los 100 mil pesos?
+
+    Solución:
+
+    Las pérdidas agregadas se definen como $L = X_1+X_2+...+X_N$, donde $X\sim Gamma(1.13, 32257)$ y mensualmente, $N \sim Pois(0.035)$.
+
+    Para obtener una distribución para las pérdidas agregadas, podemos simular un año para una póliza:
+
+    ```{r}
+    # Simulando la frecuencia para un año:
+    N = rpois(n = 12, lambda = 0.035)
+    # Simulando la severidad:
+    X = rgamma(n = sum(N), shape = 1.13, scale = 32257)
+    X
+    ```
+
+    La idea es generar muchísimas simulaciones o muchos años hipotéticos para conocer la distribución empírica de las pérdidas agregadas:
+
+    ```{r}
+    # Simulando varios años:
+    simulaciones = 1e5
+
+    N = replicate(n = simulaciones,
+                  rpois(n = 12, lambda = 0.035))
+
+    X = sapply(1:simulaciones,
+               function(i){rgamma(n = sum(N[,i]), shape = 1.13, scale = 32257)})
+
+    L = sapply(X, sum)
+
+    hist(L)
+
+    ```
+
+    Con esta distribución empírica de las pérdidas agregadas, podemos calcular la probabilidad:
+
+    ```{r}
+    mean(L>1e5)
+
+    ```
+
+2.  La aseguradora cobrará una prima anual igual al valor esperado de las pérdidas agregadas anuales más 0.25 veces su desviación estándar. Obtén el valor de la prima.
+
+    ```{r}
+    prima = mean(L)+sd(L)*.25
+    prima
+
+    ```
+
+3.  Si la aseguradora vende 300 pólizas, ¿cuál es la probabilidad de que no pueda pagar los siniestros observados en un año, si cobra una prima igual al valor esperado de las pérdidas agregadas para las 300 pólizas más 0.25 veces la desviación estándar de las mismas, dividido por 300?
+
+    ```{r}
+    # Esto estaba mal:
+    # ingresos = 300*prima
+    # mean((300*L)>ingresos)
+
+    # Es necesario simular 300 distribuciones para las pérdidas agregadas.
+
+    polizas = 300
+
+    sims = 1e5
+
+    N = replicate(sims, rpois(n = 12*polizas, lambda = 0.035))
+
+    X = sapply(1:sims,
+               function(i){rgamma(n = sum(N[,i]), shape = 1.13, scale = 32257)})
+
+    L = sapply(X, sum)
+
+    hist(L)
+
+    # Calculando la prima:
+
+    prima = (mean(L)+.25*sd(L))/300
+
+    ingresos = prima*300
+
+    # Calculando P(L>ingresos)
+
+    mean(L>ingresos)
+
+    ```
+
+4.  Si la aseguradora quisiera que la probabilidad de no poder pagar fuera de 5%, ¿cuál es el precio mínimo que debería cobrar por cada póliza?
+
+    ```{r}
+    # VaR al 95% para las pérdidas:
+    VaR = quantile(L, .95)
+
+    # Tendría que cobrar este valor dividido por el número de pólizas para tener esta certeza.
+    prima2 = VaR/300
+    prima2
+
+    # Sólo en 5% de los escenarios tendrá pérdidas mayores que este valor (VaR), por lo que tendría que cobrarles este cuantil para lograr esta probabilidad de no poder pagar.
+
+    ingresos2 = prima2*300
+    mean(L>ingresos2)
+
+
+
+    ```
+
+5.  Calcula el expected shortfall a este nivel para las pérdidas agregadas.
+
+    ```{r}
+    # El valor esperado de las pérdidas una vez que superaron al VaR:
+    mean(L[L>VaR])
+
+    ggplot()+
+      geom_histogram(aes(L))+
+      geom_vline(aes(xintercept = VaR, color = "VaR"))+
+      geom_vline(aes(xintercept = mean(L[L>VaR]), color = "ES"))
+
+    # Observando sólo la cola derecha de la distribución:
+    ggplot()+
+      geom_histogram(aes(L))+
+      geom_vline(aes(xintercept = quantile(L, .95), color = "VaR"))+
+      geom_vline(aes(xintercept = mean(L[L>VaR]), color = "ES"))+
+      xlim(VaR, 8e6)
+    ```
+
+## Número de simulaciones
+
+Informalmente, lo que se suele hacer es realizar un millón o más de simulaciones para estimar algún estadístico desconocido o alguna medida de interés. Sin embargo, nos podemos basar en teoría de muestreo para definir el número de simulaciones necesarios para tener cierto margen de error a un nivel definido de confianza.
+
+Por ejemplo, si quisiéramos estimar una media poblacional, podemos definir la siguiente relación:
+
+$P(|\bar{X}-\mu| \le \epsilon \mu) \ge 1- \alpha$
+
+Donde $\mu$ es la media poblacional (la que buscamos estimar), $\epsilon$ es una proporción, que generalmente será pequeña y $1-\alpha$ es el nivel de confianza que buscamos tener, por lo que $\alpha$ debería ser pequeño, normalmente.
+
+Generalmente, la elección de $\epsilon$ dependerá del parámetro que busquemos estimar. No es lo mismo tener un alto error porcentual con respecto a una proporción que con respecto a una media que podría tomar valores muy altos.
+
+Utilizando los resultados del TLC:
+
+$P(|\frac{(\bar{X}-\mu)\sqrt{n}}{\sigma}| \le \frac{\epsilon \mu \sqrt{n}}{\sigma}) \ge 1- \alpha$
+
+Esto implica que $\frac{\epsilon \mu \sqrt{n}}{\sigma} \ge q_{(1-\alpha /2)}$
+
+Donde $q$ es el cuantil de una distribución normal estándar.
+
+De esta expresión, podemos obtener $n$, que en este contexto será pensado como el número de simulaciones.
+
+$n \ge (\frac{q_{(1-\alpha /2)} \sigma}{\epsilon \mu})^2$
+
+Si utilizo este número de simulaciones, puedo tener un nivel de confianza $1-\alpha$ de que mi error al realizar la estimación de una media será menor o igual que $\epsilon \mu$.
+
+Como no conocemos $\mu$ ni $\sigma$ normalmente, lo que haremos es reemplazarlos por sus estimadores o sus expresiones muestrales. Se calculará la relación entre estas medidas y se aumentará el número de simulaciones hasta que se cumpla el criterio.
+
+Para el caso de una proporción, se puede derivar un resultado similar y el número de simulaciones sería de:
+
+$n \ge \frac{q_{(1-\alpha /2)}^2 (1-p)}{\epsilon^2 p}$
+
+Donde lo que se haría normalmente es sustituir la proporción a estimar por su estimador $\hat{p}$ o por 0.5.
+
+Para el ejemplo de las pérdidas agregadas para 300 pólizas:
+
+```{r}
+
+# Si el objetivo fuera estimar la media de las pérdidas:
+
+# Definimos el nivel de error y de confianza:
+
+alpha = .05 # Confianza = 1-alpha
+error = .01 # Error
+cuantil = qnorm(1-alpha/2)
+
+simulaciones = 10
+polizas = 300
+N = replicate(simulaciones,
+              rpois(12*polizas, lambda = .035))
+X = sapply(1:simulaciones,
+           function(i){rgamma(sum(N[,i]), shape = 1.13, scale = 32257)})
+
+L = sapply(X, sum)
+
+# Con estos valores, puedo calcular la relación:
+
+mu = mean(L)
+sigma = sd(L)
+
+cosa = (cuantil*sigma/(error*mu))^2
+cosa
+simulaciones > cosa
+# Vemos que para 10 simulaciones, la relación no se cumple, por lo que será necesario hacer una mayor cantidad.
+```
+
+```{r}
+simulaciones = 2
+min_sim = simulaciones+1
+
+while(min_sim > simulaciones){
+  
+  simulaciones = simulaciones*2
+  
+  N = replicate(simulaciones,
+              rpois(12*polizas, lambda = .035))
+  X = sapply(1:simulaciones,
+             function(i){rgamma(sum(N[,i]), shape = 1.13, scale = 32257)})
+  
+  L = sapply(X, sum)
+  
+  # Con estos valores, puedo calcular la relación:
+  
+  mu = mean(L)
+  sigma = sd(L)
+  
+  min_sim = (cuantil*sigma/(error*mu))^2
+  
+  print(list(estimacion = mu,
+             simulaciones = simulaciones,
+             minimo = min_sim)
+        )
+  
+  
+}
+
+# Así, vemos que si usamos 1024 simulaciones, podemos estimar la media de las pérdidas agregadas con un 95% de confianza para un error de 1%.
+```
+
+Si quisiera tener un menor error, por ejemplo, de 0.1%, ¿cuántas simulaciones necesito?
+
+```{r}
+simulaciones = 1
+min_sim = simulaciones+1
+error = .001
+while(min_sim > simulaciones){
+  
+  simulaciones = simulaciones*2
+  
+  N = replicate(simulaciones,
+              rpois(12*polizas, lambda = .035))
+  X = sapply(1:simulaciones,
+             function(i){rgamma(sum(N[,i]), shape = 1.13, scale = 32257)})
+  
+  L = sapply(X, sum)
+  
+  # Con estos valores, puedo calcular la relación:
+  
+  mu = mean(L)
+  sigma = sd(L)
+  
+  min_sim = (cuantil*sigma/(error*mu))^2
+  
+  print(list(estimacion = mu,
+             simulaciones = simulaciones,
+             minimo = min_sim)
+        )
+  
+  
+}
+
+# Así, vemos que, para un nivel de error del 0.1%, necesitamos al rededor de 60 mil simulaciones para lograr este nivel de confianza.
+```
+
+Si quisiéramos estimar la probabilidad de que las pérdidas sean mayores que 5.5 MDP, ¿cuántas simulaciones necesitamos, para obtener un resultado con un error de 5% y un nivel de confianza de 99%?
+
+Ahora, podemos usar la siguiente relación:
+
+$n \ge \frac{q_{(1-\alpha /2)}^2 (1-p)}{\epsilon^2 p}$
+
+```{r}
+simulaciones = 1
+min_sim = simulaciones+1
+epsilon = .01
+alpha = 1-.05
+prop = NA
+
+while((min_sim > simulaciones | prop == 0) & simulaciones<1.5e5){
+  
+  simulaciones = simulaciones*2
+  
+  N = replicate(simulaciones,
+              rpois(12*polizas, lambda = .035))
+  X = sapply(1:simulaciones,
+             function(i){rgamma(sum(N[,i]), shape = 1.13, scale = 32257)})
+  
+  L = sapply(X, sum)
+  
+  # Con estos valores, puedo calcular la relación:
+  
+  prop = mean(L>5.5e6)
+  
+  min_sim = cuantil^2*(1-prop)/(epsilon^2*prop)
+  
+  print(list(estimacion = prop,
+             simulaciones = simulaciones,
+             minimo = min_sim)
+        )
+  
+  
+}
+
+# Vemos que con 32,768 simulaciones, ya obtuvimos un nivel de confianza mayor al 99% con un error menor o igual que 5%. Nuestra estimación de la probabilidad es de 5.8%
+
+```
+
+**Ejemplo:**
+
+Suponiendo que $N \sim Nbinom(r = 7, p = 0.8)$, donde $N$ es el número de choques diarios en la ciudad W, ¿cuál es la probabilidad de que el próximo año haya más de 700 choques?
+
+Simulando un año:
+
+```{r}
+
+choques = rnbinom(365, size = 7, prob = 0.8)
+total = sum(choques)
+total
+
+# Podemos calcular la probabilidad de que haya más de 700 choques en este año
+mean(total>700)
+```
+
+Ahora, podemos simular muchos años para obtener una distribución para el total de choques:
+
+```{r}
+
+simulaciones = 2
+
+choques = replicate(simulaciones, 
+                    rnbinom(365, size = 7, prob = 0.8))
+
+total = apply(choques, MARGIN = 2, sum)
+
+prop = mean(total>700)
+
+# Vamos a obtener el número de simulaciones necesario para el nivel de confianza y el error requeridos:
+
+# Error = 5%
+# Confianza = 99%
+
+epsilon = .05
+alpha = .01
+cuantil = qnorm(1-alpha/2)
+prop = 0
+simulaciones = 1
+min_sim = simulaciones+1
+
+while((simulaciones < min_sim | prop == 0) & simulaciones < 5e5){
+
+  simulaciones = simulaciones*2
+
+  choques = replicate(simulaciones, 
+                      rnbinom(365, size = 7, prob = 0.8))
+  
+  total = apply(choques, MARGIN = 2, sum)
+  
+  prop = mean(total>700)
+  
+  min_sim = cuantil^2*(1-prop)/(epsilon^2*prop)
+  
+  print(list(estimacion = prop,
+             simulaciones = simulaciones,
+             minimo = min_sim)
+        )
+    
+}
+
+```
+
+Con 262144 simulaciones, estimamos que la probabilidad de que en un año haya más de 700 choques es de `r prop` .
+
+## Bootstrapping
+
+El método **bootstrap** es una herramienta de simulación empleada principalmente para obtener la distribución o el error estándar de algún estimador. Es especialmente útil cuando es complicado obtener la varianza o algún estadístico de un estimador.
+
+La idea central del método es que, en la práctica, sólo disponemos de una muestra del proceso que se busca analizar, por lo que para aproximar la distribución, se utiliza la distribución empírica y para encontrar el error estándar o la distribución de algún estimador, el proceso consiste en los siguientes pasos:
+
+1.  Considerar a la muestra como la distribución poblacional real (suponemos que la distribución empírica es una buena aproximación de la distribución teórica).
+2.  Calcular el estadístico de interés sobre la muestra y suponemos que es el estadístico real poblacional que busca estimar.
+3.  Realizar una gran cantidad de muestras con reemplazo del mismo tamaño de la muestra, obtenidas de esta misma. De esta manera obtendremos nuestras submuestras o muestras bootstrap.
+4.  Calcular el estadístico o estimador para cada submuestra, esperando ahora estimar al estadístico obtenido en la muestra original.
+5.  Aproximar la distribución del estimador o algún estadístico de interés sobre el mismo.
+
+Esta es una forma de obtener de manera consistente la distribución de un parámetro de interés.
+
+**Ejemplo:**
+
+Sabemos que el error estándar de una media muestral ($\bar{X}$), es igual a $\frac{\sigma}{\sqrt{n}}$, por lo que podemos usarlo como comparación para conocer la utilidad del método bootstrap:
+
+sqrt(30)/sqrt(length(muestra))
+
+```{r}
+
+set.seed(2022)
+# Suponiendo que obtenemos una muestra aleatoria:
+
+muestra = rpois(100, lambda = 30)
+
+# Si queremos estimar la media poblacional, podemos intentarlo con la media muestral:
+
+xbarra = mean(muestra)
+
+# si quisiera obtener su error estándar, podría usar la fórmula anterior:
+
+e_std_teorico = sqrt(30)/sqrt(length(muestra))
+
+# Ahora, podemos intentar obtener este error con el método bootstrap:
+
+# Definir el número de remuestreos:
+B = 1e4
+
+# Obtenemos las submuestras:
+submuestras = replicate(n = B,
+                        sample(muestra, replace = T))
+
+# Le calculamos el estadístico de interés a cada submuestra:
+
+xbarra_bootstrap = apply(submuestras, MARGIN = 2, mean)
+
+
+# Podemos ver la distribución de las medias muestrales:
+
+hist(xbarra_bootstrap)
+
+# Así, podemos calcular el error estándar bootstrap:
+
+sd(xbarra_bootstrap)
+
+
+```
+
+Vemos que el estimador por el método bootstrap funciona relativamente bien para la media muestral. La utilidad de este método se puede apreciar cuando usamos algún estimador cuyo error estándar es complicado de obtener.
+
+**Ejemplo:**
+
+Podemos obtener el error estándar de un estimador por MLE:
+
+```{r}
+
+# Si queremos estimar los parámetros de una lognormal:
+
+muestra = rlnorm(60, 5, 1)
+
+# Estimando los parámetros mu y sigma por MLE:
+
+mu = mean(log(muestra))
+sigma = sd(log(muestra))
+
+# Podemos aproximar el error estándar de estos estimadores mediante el método Bootstrap:
+
+B = 1e3
+submuestras = replicate(B, sample(muestra, replace = T))
+
+mus_bootstrap = apply(submuestras, 2, function(x){mean(log(x))})
+
+sigmas_bootstrap = apply(submuestras, 2, function(x){sd(log(x))})
+
+# ahora, ya teniendo los estimadores para cada submuestra, podemos conocer su distribución y su error estándar:
+
+mus_bootstrap %>% hist()
+sd(mus_bootstrap)
+sigmas_bootstrap %>% hist()
+sd(sigmas_bootstrap)
+
+
+
+```
+
+También, conociendo la distribución de los estimadores, puedo construir un intervalo de confianza:
+
+```{r}
+# Si aprovechamos el resultado de que los estimadores por MLE siguen una distribución normal asintóticamente:
+
+# Intervalo al 95% de confianza para mu:
+mu+c(-1,1)*sd(mus_bootstrap)*qnorm(.975)
+
+
+# Intervalo al 95% de confianza para sigma:
+sigma+c(-1,1)*sd(sigmas_bootstrap)*qnorm(.975)
+
+# Si no suponemos normalidad:
+
+# Para mu:
+c(quantile(mus_bootstrap, .025), quantile(mus_bootstrap, .975))
+
+# Para sigma:
+c(quantile(sigmas_bootstrap, .025), quantile(sigmas_bootstrap, .975))
+
+```
+
+**Ejemplo de aplicación:**
+
+Supongamos que estos datos son de la severidad por siniestro para cierto tipo de seguro. Utiliza el método Bootstrap para ver qué tan robusto es el ajuste con una distribución lognormal, mediante una prueba Kolmogorov-Smirnov:
+
+```{r}
+
+ks.test(muestra, "plnorm", mu, sigma)
+
+# Sólo empleando la muestra original, no se rechaza la distribución lognormal.
+
+# Podemos usar el método bootstrap para analizar la robustez de la prueba:
+
+pvals = rep(NA, B)
+
+for(b in 1:B){
+  
+  pvals[b] = ks.test(submuestras[,b], "plnorm", mus_bootstrap[b], sigmas_bootstrap[b])$p.value
+  
+}
+
+summary(pvals)
+mean(pvals>.05)
+
+# Vemos que en la mayor parte de las pruebas bootstrap el valor p es mayor que .05, por lo que nos da más confianza en nuestra conclusión de no rechazar la distribución lognormal.
+
+# Ahora, si quisiera tener más robustez tanto para la distribución como para los parámetros, podemos no variar estos últimos:
+
+pvals = rep(NA, B)
+
+for(b in 1:B){
+  
+  pvals[b] = ks.test(submuestras[,b], "plnorm", mu, sigma)$p.value
+  
+}
+
+summary(pvals)
+mean(pvals>.05)
+
+# con este resultado podemos tener mucha más confianza en nuestra prueba y en utilizar esta distribución con estos parámetros.
+```
+
+**Ejemplo con Monte Carlo:**
+
+Si los parámetros obtenidos para la severidad fueran distintos (dentro del intervalo propuesto), calcula una distribución para el VaR con 30 siniestros.
+
+```{r}
+# Si sólo nos basamos en la estimación original:
+
+perdidas = rlnorm(30, mu, sigma)
+VaR = quantile(perdidas, .95)
+VaR
+
+# Usando las estimaciones con bootstrap:
+
+# tomando aleatoriamente un valor para mu y otro para sigma:
+mu_b = sample(mus_bootstrap, 1)
+sigma_b = sample(sigmas_bootstrap, 1)
+mu_b
+sigma_b
+perdidas = rlnorm(30, mu_b, sigma_b)
+VaR = quantile(perdidas, .95)
+VaR
+
+# Podemos tomar muchos valores aleatoriamente de las distribuciones bootstrap de los parámetros y calcular el VaR para cada posibilidad:
+
+simulaciones = 50e3
+
+VaRs = rep(NA, simulaciones)
+
+for(i in 1:simulaciones){
+  
+  mu_b = sample(mus_bootstrap, 1)
+  sigma_b = sample(sigmas_bootstrap, 1)
+  perdidas = rlnorm(30, mu_b, sigma_b)
+  VaR = quantile(perdidas, .95)
+  VaRs[i] = VaR
+  
+}
+
+hist(VaRs)
+summary(VaRs)
+
+# Podemos obtener la distribución empírica del VaR:
+
+distremp = ecdf(VaRs)
+
+# ¿Cuál es la probabilidad de que el VaR sea mayor que $1000?
+
+1-distremp(1000)
+
+```
